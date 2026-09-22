@@ -67,12 +67,11 @@ classdef PlateLoaderSim < hgsetget
             fprintf('GRIPPER CLOSE\n'); %send to robot (console)
             obj.isGripperClosed = true;
             response = 'READY, CLOSED, NOPLATE';
-            % response = 'READY, CLOSED, PLATE';
-
             if( strcmp(response(end-6:end),'NOPLATE'))
                 obj.isPlatePresent = false;
             else
                 obj.isPlatePresent = true;
+                response = 'READY, CLOSED, PLATE';
             end
         end
         function response = open(obj)
