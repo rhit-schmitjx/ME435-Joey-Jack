@@ -3,6 +3,7 @@ classdef PlateLoader < hgsetget
     %   Performs the basic actions to control the plate loader
 
     properties
+        piAddress
         serialRobot
         xAxisPosition
         isZAxisExtended
@@ -17,33 +18,37 @@ classdef PlateLoader < hgsetget
             0 30 20 60 0];
     end
 
+    methods (Access = private)
+        function response = sendCommand(obj, command)
+            import matlab.net.*
+            import matlab.net.http.*
+    
+            r = RequestMessage;
+            uri = URI("http://" + obj.piAddress + ":8080/api/" + command);
+            
+            resp = send(r, uri);
+            response = resp.Body.Data;
+            
+            fprintf("Response to %s --> %s\n", command, response);
+        end
+    end
+
     methods
-        function obj = PlateLoader(portNumber)
+        function obj = PlateLoader(piIP)
             % Construct a PlateLoader Object
-            portStr = sprintf('COM%d',portNumber);
-
-%            portStr = '/dev/cu.usbserial-110'; % ignore the portNumber for my Mac
-
-            obj.serialRobot = serialport(portStr, 19200, 'Timeout', 15);
-            writeline(obj.serialRobot,'INITIALIZE');
-            response = readline(obj.serialRobot);
-            % Had to print the response since a construct cannot return mulitple items
-            fprintf('%s\n', response);
+            obj.piAddress = piIP;
             obj.xAxisPosition = 3;
             obj.isZAxisExtended = false;
             obj.isGripperClosed = true;
-            % TODO: When turned on there might be a plate present
-            %   Can someone add code to get Plate status
-            %   Maybe use the GRIPPER_STATUS command and ready string reply
             obj.isPlatePresent = false;
         end
+
         function response = reset(obj)
             % Reset robot
-            writeline(obj.serialRobot,'RESET');
+            response = obj.sendCommand("RESET");
             obj.xAxisPosition = 3;
             obj.isZAxisExtended = false;
             obj.isGripperClosed = true;
-            response = readline(obj.serialRobot);
         end
         function response = x(obj,pos)
             % Moves the x-axis to position, passes the reply back to caller
@@ -51,19 +56,14 @@ classdef PlateLoader < hgsetget
                 fprintf('Illegal position\n');
                 return
             end
-            xCommand = sprintf('X-AXIS %d',pos);
-            writeline(obj.serialRobot,xCommand);
+            response = obj.sendCommand("X-AXIS " + pos);
             if(obj.xAxisPosition ~= pos)
                 obj.isZAxisExtended = false;
             end
             obj.xAxisPosition = pos;
-            response = readline(obj.serialRobot);
         end
         function response = extend(obj)
-            % Extends the Z-Axis, passes the reply back to caller
-            writeline(obj.serialRobot,'Z-AXIS EXTEND');
-            response = readline(obj.serialRobot);
-
+            response = obj.sendCommand("Z-AXIS EXTEND");
             if startsWith(response, "ERROR")
                 obj.isZAxisExtended = false;
             else
@@ -72,15 +72,13 @@ classdef PlateLoader < hgsetget
         end
         function response = retract(obj)
             % Retracts the Z-Axis, passes the reply back to caller
-            writeline(obj.serialRobot,'Z-AXIS RETRACT');
+            response = obj.sendCommand("Z-AXIS RETRACT");
             obj.isZAxisExtended = false;
-            response = readline(obj.serialRobot);
         end
         function response = close(obj)
             % Close Gripper, passes the reply back to caller
-            writeline(obj.serialRobot,'GRIPPER CLOSE');
+            response = obj.sendCommand("GRIPPER CLOSE");
             obj.isGripperClosed = true;
-            response = readline(obj.serialRobot);
             if endsWith(response, "NOPLATE")
                 obj.isPlatePresent = false;
             else
@@ -89,23 +87,16 @@ classdef PlateLoader < hgsetget
         end
         function response = open(obj)
             % Open Gripper, passes the reply back to caller
-            writeline(obj.serialRobot,'GRIPPER OPEN');
+            response = obj.sendCommand("GRIPPER OPEN");
             obj.isGripperClosed = false;
             obj.isPlatePresent = false;
-            response = readline(obj.serialRobot);
         end
         function response = movePlate(obj, startPos, endPos)
-            % movePlate(startPos, endPos)- Passes two MATLAB numbers for the
-            % start and end position of the plate, tries to move the plate to
-            % that position, and passes the reply back to caller
             if (startPos <1 || startPos>5 || endPos <1 || endPos>5)
                 fprintf('Illegal position\n');
                 return
             end
-            moveCommand = sprintf('MOVE %d %d',startPos,endPos);
-            writeline(obj.serialRobot,moveCommand);
-
-            response = readline(obj.serialRobot);
+            response = obj.sendCommand("MOVE " + startPos + " " + endPos);
             if startsWith(response, "ERROR")
                 obj.xAxisPosition = startPos;
                 obj.isZAxisExtended = false;
@@ -129,8 +120,7 @@ classdef PlateLoader < hgsetget
                 for j = 2:4
                     if(i ~= j)
                         timeCommand = sprintf('SET_DELAY %d %d %d', i,j,timeDelays(i,j));
-                        writeline(obj.serialRobot,timeCommand);
-                        response = readline(obj.serialRobot);
+                        response = obj.sendCommand(timeCommand);
                         fprintf('%s\n', response);
                     end
                 end
@@ -146,8 +136,7 @@ classdef PlateLoader < hgsetget
             % TODO: Make the values update if different
             %  Can someone make the call to LOADED_STATUS also update
             %  properties, just in case somehow it gets off
-            writeline(obj.serialRobot,'LOADER_STATUS');
-            response = readline(obj.serialRobot);
+            response = obj.sendCommand("LOADER_STATUS");
         end
 
         % Other to todo's if someone wants to.  Implement the additional
@@ -163,8 +152,7 @@ classdef PlateLoader < hgsetget
         end
         function response = shutdown(obj)
             % Close serial object
-            delete(obj.serialRobot);
-            obj.serialRobot = [];
+            obj.piAddress = '';
             response = 'Disconnected';
         end
         function disp(obj)
